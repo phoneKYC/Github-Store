@@ -1,66 +1,87 @@
 """
-معالجات أوامر التليجرام (Command Handlers)
+معالجات أوامر /start و /help
 """
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from bot.config import config
 
 logger = logging.getLogger(__name__)
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """رسالة الترحيب عند بدء المحادثة مع البوت"""
+async def start(update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """رسالة الترحيب الرئيسية"""
     user = update.effective_user
+    name = user.first_name or "صديقي"
 
-    welcome_text = (
-        f"✨ *مرحباً بك يا {user.first_name} في بوت متجر GitHub!* ✨\n\n"
-        f"🤖 يتيح لك هذا البوت البحث عن البرمجيات والتطبيقات مفتوحة المصدر "
-        f"مباشرة من مستودعات GitHub وتحميل إصداراتها فوراً.\n\n"
-        f"💡 *فكرة المشروع مستوحاة من:* "
-        f"[OpenHub-Store/GitHub-Store](https://github.com/OpenHub-Store/GitHub-Store)\n\n"
-        f"🛠️ *تطوير وبناء:* [@IIDZII]\n\n"
-        f"اضغط على /help لمعرفة كيفية الاستخدام وبدء البحث!"
+    text = (
+        f"┏━━━━━━━━━━━━━━━━━━━━━━━┓\n"
+        f"┃  🏪  GitHub Store Bot  ┃\n"
+        f"┗━━━━━━━━━━━━━━━━━━━━━━━┛\n\n"
+        f"مرحباً {name}! 👋\n\n"
+        f"بوتك لاستكشاف وتحميل التطبيقات مفتوحة المصدر\n"
+        f"مباشرة من مستودعات GitHub بسهولة وسرعة.\n\n"
+        f"💡 *فكرة المشروع مستوحاة ومطوّرة بفضل*\n"
+        f"[Komi Store](https://github.com/kurikomi-labs/komi-store) "
+        f"و [OpenHub Store](https://github.com/OpenHub-Store/GitHub-Store)\n\n"
+        f"🤝 *شكر خاص لفريق* [kurikomi-labs](https://github.com/kurikomi-labs)\n"
+        f"*على إلهامهم الرائع وإسهاماتهم القيّمة في عالم البرمجيات المفتوحة.*\n\n"
+        f"🛠️ التطوير: [@IIDZII]"
     )
 
     keyboard = [
-        [InlineKeyboardButton("🔍 ابدأ البحث المباشر", callback_data="prompt_search")],
-        [InlineKeyboardButton("🔑 ربط حساب GitHub", callback_data="prompt_login")],
+        [
+            InlineKeyboardButton("🔍 بحث", callback_data="action_search"),
+            InlineKeyboardButton("👤 حسابي", callback_data="action_account"),
+        ],
+        [
+            InlineKeyboardButton("📖 دليل الاستخدام", callback_data="action_help"),
+            InlineKeyboardButton("🔄 تغيير التوكن", callback_data="action_change_token"),
+        ],
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(
-        welcome_text,
+        text,
         parse_mode="Markdown",
-        reply_markup=reply_markup,
+        reply_markup=InlineKeyboardMarkup(keyboard),
         disable_web_page_preview=True,
     )
 
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """دليل الاستخدام"""
-    help_text = (
-        "📖 *دليل استخدام البوت وميزاته:*\n\n"
+async def help_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """دليل الاستخدام - يُرسل كرسالة ثابتة"""
+    text = (
+        "📖 *دليل الاستخدام الكامل:*\n\n"
         "🔍 *البحث عن التطبيقات:*\n"
-        "استخدم أمر `/search` متبوعاً باسم المستودع أو الرابط بالكامل.\n"
-        "💡 _أمثلة:_\n"
-        "• `/search termux/termux-app`\n"
-        "• `/search https://github.com/PicoCrypt/PicoCrypt`\n\n"
-        "⚙️ *تحديد نظام التشغيل:*\n"
-        "بعد البحث، ستظهر لك أزرار تفاعلية لاختيار نظام التشغيل المستهدف "
-        "(Android, Linux, Windows, macOS).\n\n"
-        "📤 *الموازنة الذكية للملفات:*\n"
-        f"• إذا كان حجم حزمة التثبيت *أقل من {config.MAX_FILE_SIZE_MB} ميجابايت*، "
-        "سيقوم البوت برفعها وإرسالها لك مباشرة كملف وثيقة.\n"
-        f"• إذا كان الحجم *أكبر من {config.MAX_FILE_SIZE_MB} ميجابايت*، "
-        "سيرسل لك البوت رابط تحميل مباشر من سيرفرات GitHub الرسمية.\n\n"
-        "🔑 *تخطي قيود الطلبات (Rate Limits):*\n"
-        "لتفادي قيود الـ API الخاصة بـ GitHub، ربط حسابك بواسطة:\n"
-        "• `/login YOUR_GITHUB_TOKEN`\n"
-        "• `/logout` لإلغاء الربط\n"
-        "_(يتم تشفير الرمز الخاص بك تلقائياً لحمايته وأمانه)._"
+        "• `/search termux` — بحث بالاسم\n"
+        "• `/search termux/termux-app` — بحث بالمسار\n"
+        "• `/search https://github.com/...` — بحث بالرابط\n\n"
+        "📱 *رحلة التحميل:*\n"
+        "1️⃣ ابحث عن التطبيق\n"
+        "2️⃣ اختر المستودع من النتائج\n"
+        "3️⃣ اختر الإصدار المطلوب\n"
+        "4️⃣ اختر الملف المناسب لنظامك\n"
+        "5️⃣ يتم إرساله لك مباشرة! 🎉\n\n"
+        "🔑 *ربط حساب GitHub:*\n"
+        "• `/login ghp_xxx` — ربط (مع التحقق الفوري)\n"
+        "• `/logout` — إلغاء الربط\n"
+        "• /login بدون توكن لعرض حالتك الحالية\n\n"
+        "💡 *ملاحظة:* الربط يرفع حد الطلبات من 10 إلى 5000/ساعة"
     )
 
-    await update.message.reply_text(
-        help_text, parse_mode="Markdown", disable_web_page_preview=True
-    )
+    keyboard = [
+        [InlineKeyboardButton("🔙 رجوع", callback_data="action_back_home")],
+    ]
+
+    if update.callback_query:
+        await update.callback_query.edit_message_text(
+            text, parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            disable_web_page_preview=True,
+        )
+    else:
+        await update.message.reply_text(
+            text, parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            disable_web_page_preview=True,
+        )

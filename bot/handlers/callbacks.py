@@ -1,170 +1,136 @@
 """
-معالجات نقرات الأزرار الشفافة (Callback Query Handlers)
+معالجات الأزرار الشفافة (Callback Query Handlers)
+توجيه جميع النقرات إلى المعالج المناسب
 """
 import logging
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-from bot.config import config
-from bot.crypto import decrypt_token
-from bot.database import get_user_token
-from bot.github_api import (
-    fetch_latest_release,
-    download_file,
-    filter_assets_by_os,
-    OS_LABELS,
-)
+from bot.handlers.auth import login, logout
 
 logger = logging.getLogger(__name__)
 
 
 async def button_router(update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """توجيه نقرات الأزرار الشفافة إلى المعالج المناسب"""
+    """الموجّه الرئيسي لجميع الأزرار الشفافة"""
     query = update.callback_query
     data = query.data
 
-    if data == "prompt_search":
+    # ── أزرار القائمة الرئيسية ──
+    if data == "action_search":
         await query.answer()
         await query.edit_message_text(
-            "🔍 للبحث، يرجى كتابة الأمر بالطريقة التالية:\n"
-            "`/search اسم_المستودع`\n\n"
-            "مثال:\n`/search OpenHub-Store/GitHub-Store`\n\n"
-            "أو أرسل رابط المستودع مباشرة:\n`/search https://github.com/owner/repo`",
+            "🔍 *البحث عن تطبيق*\n\n"
+            "أرسل اسم التطبيق أو المستودع:\n"
+            "`/search اسم التطبيق`\n\n"
+            "💡 أمثلة:\n"
+            "• `/search termux`\n"
+            "• `/search owner/repo`\n"
+            "• `https://github.com/owner/repo`",
             parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 رجوع", callback_data="action_back_home")],
+            ]),
         )
 
-    elif data == "prompt_login":
+    elif data == "action_account":
+        # عرض حالة الحساب بدون إدخال توكن
+        await query.answer()
+        context.args = []
+        await login(update, context)
+
+    elif data == "action_help":
+        from bot.handlers.commands import help_command
+        await help_command(update, context)
+
+    elif data == "action_change_token":
         await query.answer()
         await query.edit_message_text(
-            "🔑 لربط حسابك، يرجى كتابة الأمر بالطريقة التالية:\n"
-            "`/login ghp_your_token_here`\n\n"
-            "💡 للحصول على توكن:\n"
-            "GitHub → Settings → Developer settings → "
-            "Personal access tokens → Tokens (classic) → Generate new token",
+            "🔑 *تحديث توكن GitHub*\n\n"
+            "أرسل التوكن الجديد:\n`/login ghp_your_token`\n\n"
+            "أو ألغِ الربط: `/logout`",
             parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 رجوع", callback_data="action_back_home")],
+            ]),
         )
 
-    elif data.startswith("os_"):
-        await handle_os_selection(update, context)
+    elif data == "action_back_home":
+        await query.answer()
+        await _show_home(query, context)
+
+    # ── أزرار نتائج البحث ──
+    elif data.startswith("repo_"):
+        from bot.handlers.search import show_repo_releases
+        await show_repo_releases(update, context)
+
+    # ── أزرار الإصدارات ──
+    elif data.startswith("rel_"):
+        from bot.handlers.search import show_release_assets
+        await show_release_assets(update, context)
+
+    # ── أزرار التحميل ──
+    elif data.startswith("dl_"):
+        from bot.handlers.search import download_asset
+        await download_asset(update, context)
+
+    # ── أزرار الرجوع ──
+    elif data == "back_to_releases":
+        from bot.handlers.search import show_repo_releases
+        # إعادة عرض الإصدارات عن طريق تغيير callback_data مؤقتاً
+        original_data = update.callback_query.data
+        update.callback_query.data = f"repo_{context.user_data.get('selected_repo', '')}"
+        await show_repo_releases(update, context)
+        update.callback_query.data = original_data
+
+    elif data == "back_to_assets":
+        from bot.handlers.search import show_release_assets
+        releases = context.user_data.get("releases", [])
+        current_rel = context.user_data.get("current_release", {})
+        tag = current_rel.get("tag_name", "")
+        idx = next((i for i, r in enumerate(releases) if r["tag_name"] == tag), 0)
+        original_data = update.callback_query.data
+        update.callback_query.data = f"rel_{idx}"
+        await show_release_assets(update, context)
+        update.callback_query.data = original_data
 
 
-async def handle_os_selection(update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """معالجة اختيار نظام التشغيل وجلب الملفات المناسبة"""
-    query = update.callback_query
-    await query.answer()
+async def _show_home(query, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """إعادة عرض القائمة الرئيسية في نفس الرسالة"""
+    from bot.handlers.commands import start
+    # تعديل الرسالة الحالية لتبدو كرسالة الترحيب
+    user = query.from_user
+    name = user.first_name or "صديقي"
 
-    os_choice = query.data.split("_")[1]
-    repo_path = context.user_data.get("current_repo")
-    user_id = query.from_user.id
-
-    if not repo_path:
-        await query.edit_message_text(
-            "❌ انتهت صلاحية الجلسة.\n"
-            "يرجى إعادة كتابة أمر البحث `/search` من جديد."
-        )
-        return
-
-    os_label = OS_LABELS.get(os_choice, os_choice.upper())
-
-    await query.edit_message_text(
-        f"⏳ جاري فحص أحدث إصدار لمستودع `{repo_path}` "
-        f"وجلب ملفات *{os_label}*...",
-        parse_mode="Markdown",
+    text = (
+        f"┏━━━━━━━━━━━━━━━━━━━━━━━┓\n"
+        f"┃  🏪  GitHub Store Bot  ┃\n"
+        f"┗━━━━━━━━━━━━━━━━━━━━━━━┛\n\n"
+        f"مرحباً {name}! 👋\n\n"
+        f"بوتك لاستكشاف وتحميل التطبيقات مفتوحة المصدر\n"
+        f"مباشرة من مستودعات GitHub بسهولة وسرعة.\n\n"
+        f"💡 *فكرة المشروع مستوحاة ومطوّرة بفضل*\n"
+        f"[Komi Store](https://github.com/kurikomi-labs/komi-store) "
+        f"و [OpenHub Store](https://github.com/OpenHub-Store/GitHub-Store)\n\n"
+        f"🤝 *شكر خاص لفريق* [kurikomi-labs](https://github.com/kurikomi-labs)\n"
+        f"*على إلهامهم الرائع وإسهاماتهم القيّمة في عالم البرمجيات المفتوحة.*\n\n"
+        f"🛠️ التطوير: [@IIDZII]"
     )
 
-    # جلب التوكن الخاص بالمستخدم إذا توفر
-    token = None
-    encrypted_token = await get_user_token(user_id)
-    if encrypted_token:
-        try:
-            token = decrypt_token(encrypted_token)
-        except Exception as e:
-            logger.error(f"Failed to decrypt token for user {user_id}: {e}")
-
-    # جلب بيانات الإصدار من GitHub API
-    release_data = await fetch_latest_release(repo_path, token)
-
-    if "error" in release_data:
-        await query.edit_message_text(f"❌ {release_data['error']}")
-        return
-
-    assets = release_data.get("assets", [])
-    tag_name = release_data.get("tag_name", "الإصدار الأخير")
-    body = release_data.get("body", "لا يوجد وصف متوفر.")
-    body = body[:config.MAX_DESCRIPTION_LENGTH]  # اقتطاع الوصف
-
-    # فلترة الملفات حسب نظام التشغيل
-    filtered_assets = filter_assets_by_os(assets, os_choice)
-
-    if not filtered_assets:
-        await query.edit_message_text(
-            f"⚠️ لم يتم العثور على حزم تثبيت مخصصة لنظام *{os_label}* "
-            f"في الإصدار الأخير `{tag_name}` لهذا المستودع.",
-            parse_mode="Markdown",
-        )
-        return
+    keyboard = [
+        [
+            InlineKeyboardButton("🔍 بحث", callback_data="action_search"),
+            InlineKeyboardButton("👤 حسابي", callback_data="action_account"),
+        ],
+        [
+            InlineKeyboardButton("📖 دليل الاستخدام", callback_data="action_help"),
+            InlineKeyboardButton("🔄 تغيير التوكن", callback_data="action_change_token"),
+        ],
+    ]
 
     await query.edit_message_text(
-        f"📦 تم العثور على {len(filtered_assets)} ملف متوافق مع {os_label}.\n"
-        f"جاري المعالجة والموازنة حسب الحجم..."
+        text, parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        disable_web_page_preview=True,
     )
-
-    # معالجة كل ملف
-    max_size_bytes = config.MAX_FILE_SIZE_MB * 1024 * 1024
-
-    for asset in filtered_assets:
-        name = asset["name"]
-        download_url = asset["browser_download_url"]
-        size_bytes = asset["size"]
-        size_mb = size_bytes / (1024 * 1024)
-
-        caption = (
-            f"📦 *الملف:* `{name}`\n"
-            f"🏷️ *الإصدار:* `{tag_name}`\n"
-            f"📊 *الحجم:* {size_mb:.2f} MB\n\n"
-            f"📝 *موجز التغييرات:*\n_{body}_\n\n"
-            f"🛠️ مطور البوت: [@IIDZII] | مستوحى من OpenHub"
-        )
-
-        if size_bytes <= max_size_bytes:
-            # ملف صغير: تحميل ورفع كوثيقة
-            try:
-                await context.bot.send_chat_action(
-                    chat_id=query.message.chat_id, action="upload_document"
-                )
-
-                file_content = await download_file(download_url)
-                if file_content:
-                    await context.bot.send_document(
-                        chat_id=query.message.chat_id,
-                        document=file_content,
-                        filename=name,
-                        caption=caption,
-                        parse_mode="Markdown",
-                    )
-                else:
-                    raise Exception("فشل تحميل الملف من سيرفرات GitHub")
-            except Exception as e:
-                logger.error(f"Error uploading file {name}: {e}")
-                # تراجع لرابط مباشر
-                keyboard = [
-                    [InlineKeyboardButton("🔗 رابط تحميل مباشر", url=download_url)]
-                ]
-                await context.bot.send_message(
-                    chat_id=query.message.chat_id,
-                    text=f"⚠️ تعذر رفع الملف مباشرة.\n\n{caption}",
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode="Markdown",
-                )
-        else:
-            # ملف كبير: إرسال رابط مباشر
-            keyboard = [
-                [InlineKeyboardButton("🚀 رابط تحميل مباشر وسريع", url=download_url)]
-            ]
-            await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text=caption,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="Markdown",
-            )
