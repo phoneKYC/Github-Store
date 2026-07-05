@@ -70,6 +70,15 @@ async def button_router(update, context: ContextTypes.DEFAULT_TYPE) -> None:
         from bot.handlers.search import show_release_assets
         await show_release_assets(update, context)
 
+    # ── أزرار اختيار نظام التشغيل ──
+    elif data.startswith("os_"):
+        if data == "os_back_to_selection":
+            from bot.handlers.search import back_to_os_selection
+            await back_to_os_selection(update, context)
+        else:
+            from bot.handlers.search import show_os_filtered_assets
+            await show_os_filtered_assets(update, context)
+
     # ── أزرار التحميل ──
     elif data.startswith("dl_"):
         from bot.handlers.search import download_asset
@@ -77,29 +86,16 @@ async def button_router(update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # ── أزرار الرجوع ──
     elif data == "back_to_releases":
-        from bot.handlers.search import show_repo_releases
-        # إعادة عرض الإصدارات عن طريق تغيير callback_data مؤقتاً
-        original_data = update.callback_query.data
-        update.callback_query.data = f"repo_{context.user_data.get('selected_repo', '')}"
-        await show_repo_releases(update, context)
-        update.callback_query.data = original_data
+        from bot.handlers.search import back_to_releases
+        await back_to_releases(update, context)
 
     elif data == "back_to_assets":
-        from bot.handlers.search import show_release_assets
-        releases = context.user_data.get("releases", [])
-        current_rel = context.user_data.get("current_release", {})
-        tag = current_rel.get("tag_name", "")
-        idx = next((i for i, r in enumerate(releases) if r["tag_name"] == tag), 0)
-        original_data = update.callback_query.data
-        update.callback_query.data = f"rel_{idx}"
-        await show_release_assets(update, context)
-        update.callback_query.data = original_data
+        from bot.handlers.search import back_to_assets
+        await back_to_assets(update, context)
 
 
 async def _show_home(query, context: ContextTypes.DEFAULT_TYPE) -> None:
     """إعادة عرض القائمة الرئيسية في نفس الرسالة"""
-    from bot.handlers.commands import start
-    # تعديل الرسالة الحالية لتبدو كرسالة الترحيب
     user = query.from_user
     name = user.first_name or "صديقي"
 

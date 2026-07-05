@@ -7,7 +7,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from bot.crypto import encrypt_token, decrypt_token
-from bot.database import get_user_token, save_user_token, delete_user_token
+from bot.database import get_user_token, save_user_token, delete_user_token, ensure_user_exists
 from bot.github_api import validate_token
 
 logger = logging.getLogger(__name__)
@@ -17,6 +17,7 @@ async def login(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """ربط حساب GitHub مع التحقق من صلاحية التوكن"""
     user_id = update.effective_user.id
     is_callback = bool(update.callback_query)
+    await ensure_user_exists(user_id)
 
     if is_callback:
         await update.callback_query.answer()
@@ -87,7 +88,7 @@ async def login(update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if result["valid"]:
         encrypted = encrypt_token(token)
-        await save_user_token(user_id, encrypted)
+        await save_user_token(user_id, encrypted, result["login"])
 
         text = (
             f"✅ *تم الربط بنجاح!*\n\n"
