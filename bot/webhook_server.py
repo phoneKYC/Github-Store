@@ -9,7 +9,8 @@ from fastapi import FastAPI, Request, Response
 from bot.config import config
 from bot.database import init_db
 from bot.handlers.commands import start, help_command
-from bot.handlers.search import login, logout, search
+from bot.handlers.auth import login, logout
+from bot.handlers.search import search
 from bot.handlers.callbacks import button_router
 from telegram.ext import CommandHandler, CallbackQueryHandler
 
@@ -25,8 +26,6 @@ async def startup_event():
     عند بدء تشغيل الخادم
     """
     from telegram.ext import Application
-    import asyncio
-
     # بناء تطبيق التليجرام
     application = Application.builder().token(config.BOT_TOKEN).build()
 
@@ -44,9 +43,6 @@ async def startup_event():
     await init_db()
 
     # ضبط الـ Webhook في Telegram
-    import asyncio
-    await asyncio.sleep(1)  # انتظار قصير لضمان جاهزية الشبكة
-
     await application.bot.set_webhook(
         url=config.WEBHOOK_URL,
         secret_token=config.WEBHOOK_SECRET if config.WEBHOOK_SECRET else None,
