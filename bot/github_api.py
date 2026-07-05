@@ -253,17 +253,38 @@ async def fetch_releases(repo_path: str, token: str | None = None) -> dict:
 # تحميل ملف
 # ──────────────────────────────────────────────
 
-async def download_file(url: str, token: str | None = None) -> bytes | None:
-    """تحميل ملف من رابط لرفعه كوثيقة في التليجرام"""
+async def download_file(url: str, token: str | None = None, expected_size: int = 0) -> bytes | None:
+    """
+    تحميل ملف من رابط لرفعه كوثيقة في التليجرام.
+    التايم أوت ديناميكي حسب حجم الملف المتوقع:
+      - أقل من 10MB  → 60 ثانية
+      - 10-50MB      → 180 ثانية
+      - 50-100MB     → 300 ثانية
+      - أكبر من 100MB → 600 ثانية (10 دقائق)
+    """
+    # حساب التايم أوت ديناميكياً
+    if expected_size >= 100 * 1024 * 1024:
+        timeout = 600.0
+    elif expected_size >= 50 * 1024 * 1024:
+        timeout = 300.0
+    elif expected_size >= 10 * 1024 * 1024:
+        timeout = 180.0
+    else:
+        timeout = 60.0
+
     try:
         headers = {"User-Agent": "GitHubStoreBot/2.0"}
         if token:
             headers["Authorization"] = f"Bearer {token}"
         async with httpx.AsyncClient(follow_redirects=True) as client:
-            r = await client.get(url, headers=headers, timeout=120.0)
+            r = await client.get(url, headers=headers, timeout=timeout)
             if r.status_code == 200:
                 return r.content
+            logger.warning(f"Download returned status {r.status_code} for {url}")
             return None
+    except httpx.TimeoutException:
+        logger.error(f"Download timed out ({timeout}s) for {url}")
+        return None
     except Exception as e:
         logger.error(f"Download error from {url}: {e}")
         return None
