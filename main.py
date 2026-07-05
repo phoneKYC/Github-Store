@@ -11,7 +11,8 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler
 from bot.config import config
 from bot.database import init_db
 from bot.handlers.commands import start, help_command
-from bot.handlers.search import login, logout, search
+from bot.handlers.auth import login, logout
+from bot.handlers.search import search
 from bot.handlers.callbacks import button_router
 
 # ──────────────────────────────────────────────
