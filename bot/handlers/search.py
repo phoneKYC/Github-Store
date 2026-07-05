@@ -475,6 +475,7 @@ async def download_asset(update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     idx = int(query_cb.data.replace("dl_", ""))
     chat_id = query_cb.message.chat_id
+    message_id = query_cb.message.message_id
     user_id = query_cb.from_user.id
 
     # استخدام الملفات المفلترة (filtered_assets) إن وجدت، وإلا current_assets
@@ -499,16 +500,6 @@ async def download_asset(update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"📊 {format_size(size_bytes)}"
     )
 
-    # تحديث الرسالة: جاري التحميل
-    await query_cb.edit_message_text(
-        f"⬇️ جاري تحميل `{name}`...\n"
-        f"📊 الحجم: {format_size(size_bytes)}\n\n"
-        f"⏳ يرجى الانتظار..."
-    )
-
-    token = await _get_user_token(user_id)
-    max_size = config.MAX_FILE_SIZE_MB * 1024 * 1024
-
     # أزرار الرجوع والرابط المباشر (تُستخدم في كل الحالات)
     def _make_result_keyboard():
         return InlineKeyboardMarkup([
@@ -522,24 +513,52 @@ async def download_asset(update, context: ContextTypes.DEFAULT_TYPE) -> None:
             [InlineKeyboardButton("🔙 رجوع للملفات", callback_data="back_to_assets")],
         ])
 
+    # دالة آمنة لتحديث الرسالة — إذا فشل التعديل، ترسل رسالة جديدة
+    async def _safe_edit_or_send(text: str, keyboard: InlineKeyboardMarkup) -> None:
+        try:
+            await query_cb.edit_message_text(
+                text=text, parse_mode="Markdown",
+                reply_markup=keyboard,
+            )
+        except Exception:
+            # Callback قد انتهى صلاحيته ← نرسل رسالة جديدة
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=text, parse_mode="Markdown",
+                    reply_markup=keyboard,
+                )
+            except Exception as send_err:
+                logger.error(f"Failed to send fallback message: {send_err}")
+
+    # تحديث الرسالة: جاري التحميل
+    await _safe_edit_or_send(
+        f"⬇️ جاري تحميل `{name}`...\n"
+        f"📊 الحجم: {format_size(size_bytes)}\n\n"
+        f"⏳ يرجى الانتظار...",
+        InlineKeyboardMarkup([]),
+    )
+
+    token = await _get_user_token(user_id)
+    max_size = config.MAX_FILE_SIZE_MB * 1024 * 1024
+
     if size_bytes > max_size:
         # ملف كبير ← رابط مباشر فقط
         await log_download(user_id, repo_name, tag, name, size_bytes, "link")
-        await query_cb.edit_message_text(
+        await _safe_edit_or_send(
             text=(
                 f"📦 حجم الملف يتجاوز {config.MAX_FILE_SIZE_MB}MB\n\n"
                 f"{caption}\n\n"
                 f"🔗 رابط التحميل المباشر:"
             ),
-            parse_mode="Markdown",
-            reply_markup=_make_result_keyboard(),
+            keyboard=_make_result_keyboard(),
         )
         return
 
     # محاولة التحميل والرفع كوثيقة
     try:
         await context.bot.send_chat_action(chat_id=chat_id, action="upload_document")
-        file_content = await download_file(url, token)
+        file_content = await download_file(url, token, expected_size=size_bytes)
 
         if file_content:
             await log_download(user_id, repo_name, tag, name, size_bytes, "document")
@@ -551,35 +570,32 @@ async def download_asset(update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 parse_mode="Markdown",
             )
             # تحديث الرسالة الأصلية
-            await query_cb.edit_message_text(
+            await _safe_edit_or_send(
                 text=f"✅ تم إرسال `{name}` بنجاح!",
-                parse_mode="Markdown",
-                reply_markup=_make_result_keyboard(),
+                keyboard=_make_result_keyboard(),
             )
         else:
             # فشل التحميل ← رسالة مع زر شفاف يحتوي الرابط المباشر
             await log_download(user_id, repo_name, tag, name, size_bytes, "link", "download_failed")
-            await query_cb.edit_message_text(
+            await _safe_edit_or_send(
                 text=(
                     f"⚠️ تعذر تحميل الملف من GitHub.\n\n"
                     f"{caption}\n\n"
                     f"🔗 اضغط الزر أدناه للتحميل المباشر:"
                 ),
-                parse_mode="Markdown",
-                reply_markup=_make_error_keyboard(),
+                keyboard=_make_error_keyboard(),
             )
     except Exception as e:
         logger.error(f"Upload error for {name}: {e}")
         await log_download(user_id, repo_name, tag, name, size_bytes, "link", "upload_error")
         # فشل الرفع ← رسالة مع زر شفاف يحتوي الرابط المباشر
-        await query_cb.edit_message_text(
+        await _safe_edit_or_send(
             text=(
                 f"⚠️ حدث خطأ أثناء رفع الملف.\n\n"
                 f"{caption}\n\n"
                 f"🔗 يمكنك التحميل مباشرة عبر الزر أدناه:"
             ),
-            parse_mode="Markdown",
-            reply_markup=_make_error_keyboard(),
+            keyboard=_make_error_keyboard(),
         )
 
 
