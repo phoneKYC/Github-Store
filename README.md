@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" alt="GitHub Store Bot Logo" width="180">
+  <img src="bot/assets/logo.png" alt="GitHub Store Bot Logo" width="180">
 </p>
 
 <h1 align="center">GitHub Store Bot</h1>
